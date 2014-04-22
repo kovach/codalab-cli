@@ -62,8 +62,10 @@ def get_target_path(bundle_store, model, target):
         precondition(bundle.state != State.READY, message)
         if bundle.state == State.FAILED:
             raise UsageError('%s failed unrecoverably' % (bundle,))
-        else:
+        elif bundle.state == State.RUNNING:
             bundle_root = get_current_location(bundle_store, uuid)
+        else:
+            raise UsageError('%s isn\'t running yet!' % (bundle,))
     else:
         bundle_root = bundle_store.get_location(bundle.data_hash)
 

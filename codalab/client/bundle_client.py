@@ -100,6 +100,13 @@ class BundleClient(object):
         '''
         raise NotImplementedError
 
+    def tail(self, target):
+        '''
+        Watch the tail of target file at stdout.
+        Watch stdout and stderr if only bundle is specified.
+        '''
+        raise NotImplementedError
+
     def search(self, query=None):
         '''
         Run a search on bundle metadata and return data for all bundles that match.
@@ -107,10 +114,12 @@ class BundleClient(object):
         '''
         raise NotImplementedError
 
-    def wait(self, bundle_spec):
+    def watch(self, bundle_spec, fns):
         '''
-        Block on the execution of the given bundle. Return READY or FAILED
-        based on whether it was computed successfully.
+        Block on the execution of the given bundle.
+        fns should be a list of functions that return strings.
+        Periodically execute fns and print output.
+        Return READY or FAILED based on whether it was computed successfully.
         '''
         # Constants for a simple exponential backoff routine that will decrease the
         # frequency at which we check this bundle's state from 1s to 1m.
@@ -119,9 +128,21 @@ class BundleClient(object):
         max_period = 60.0
         info = self.info(bundle_spec)
         while info['state'] not in (State.READY, State.FAILED):
-            time.sleep(period)
-            period = min(backoff*period, max_period)
+            # Update bundle info
             info = self.info(bundle_spec)
+
+            # Call update functions
+            change = False
+            for fn in fns:
+                result = fn()
+                if not result == '':
+                    print result
+                    change = True
+            # Sleep if nothing happened
+            if change == False:
+                time.sleep(period)
+                period = min(backoff*period, max_period)
+
         return info['state']
 
     def download(self, target):

@@ -128,9 +128,8 @@ class LocalBundleClient(BundleClient):
             self.add_worksheet_item(worksheet_uuid, bundle.uuid)
         return bundle.uuid
 
-    def tail(self, target):
+    def tail_file(self, target):
         (bundle_spec, subpath) = target
-        bundle = self.get_bundle(bundle_spec)
         path = self.get_target_path(target)
 
         path_util.check_isfile(path, 'tail')
@@ -141,16 +140,23 @@ class LocalBundleClient(BundleClient):
             for line in lines:
                 print line
 
-            while bundle.state == State.RUNNING:
-                # Get updated state
-                bundle = self.get_bundle(bundle_spec)
-                # Read line
-                line = file_handle.readline().rstrip()
-                if line == '':
-                    sleep(0.5)
-                else:
-                    print line
+            def read_line():
+                return file_handle.readline().rstrip()
 
+            return self.watch(bundle_spec, [read_line])
+
+    def tail_bundle(self, bundle_spec):
+        out_path = self.get_target_path((bundle_spec, 'stdout'))
+        err_path = self.get_target_path((bundle_spec, 'stderr'))
+
+        with open(out_path, 'rb') as out, open(err_path, 'rb') as err:
+
+            def out_line():
+                return out.readline().rstrip()
+            def err_line():
+                return err.readline().rstrip()
+
+            return self.watch(bundle_spec, [out_line, err_line])
 
     def edit(self, uuid, metadata):
         bundle = self.model.get_bundle(uuid)

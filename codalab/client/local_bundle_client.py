@@ -133,6 +133,8 @@ class LocalBundleClient(BundleClient):
         bundle = self.get_bundle(bundle_spec)
         path = self.get_target_path(target)
 
+        path_util.check_isfile(path, 'tail')
+
         with open(path, 'rb') as file_handle:
             # Print last 10 lines
             lines = file_handle.read().splitlines()[-10:]

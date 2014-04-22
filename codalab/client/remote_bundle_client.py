@@ -61,6 +61,7 @@ class RemoteBundleClient(BundleClient):
       'delete',
       'info',
       'ls',
+      'tail',
       'search',
       # Worksheet-related commands all have JSON-able inputs and outputs.
       'new_worksheet',

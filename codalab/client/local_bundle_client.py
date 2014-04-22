@@ -2,12 +2,15 @@
 LocalBundleClient is BundleClient implementation that interacts directly with a
 BundleStore and a BundleModel. All filesystem operations are handled locally.
 '''
+from time import sleep
+
 from codalab.bundles import (
   get_bundle_subclass,
   UPLOADED_TYPES,
 )
 from codalab.common import (
   precondition,
+  State,
   UsageError,
 )
 from codalab.client.bundle_client import BundleClient
@@ -49,6 +52,9 @@ class LocalBundleClient(BundleClient):
     def get_bundle_target(self, target):
         (bundle_spec, subpath) = target
         return (self.model.get_bundle(self.get_spec_uuid(bundle_spec)), subpath)
+
+    def get_bundle(self, bundle_spec):
+        return self.model.get_bundle(self.get_spec_uuid(bundle_spec))
 
     def get_worksheet_uuid(self, worksheet_spec):
         return canonicalize.get_worksheet_uuid(self.model, worksheet_spec)
@@ -117,9 +123,32 @@ class LocalBundleClient(BundleClient):
         }
         bundle = bundle_subclass.construct(targets, command, metadata)
         self.model.save_bundle(bundle)
+        self.bundle_store.make_temp_location(bundle.uuid)
         if worksheet_uuid:
             self.add_worksheet_item(worksheet_uuid, bundle.uuid)
         return bundle.uuid
+
+    def tail(self, target):
+        (bundle_spec, subpath) = target
+        bundle = self.get_bundle(bundle_spec)
+        path = self.get_target_path(target)
+
+        with open(path, 'rb') as file_handle:
+            # Print last 10 lines
+            lines = file_handle.read().splitlines()[-10:]
+            for line in lines:
+                print line
+
+            while bundle.state == State.RUNNING:
+                # Get updated state
+                bundle = self.get_bundle(bundle_spec)
+                # Read line
+                line = file_handle.readline().rstrip()
+                if line == '':
+                    sleep(0.5)
+                else:
+                    print line
+
 
     def edit(self, uuid, metadata):
         bundle = self.model.get_bundle(uuid)

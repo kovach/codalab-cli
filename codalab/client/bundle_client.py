@@ -16,6 +16,7 @@ There are a couple of implementations of this class:
 # The RemoteBundleClient implementation of grep will have to use the FileServer
 # file-handle API to stream the results back.
 import time
+from sys import stdout
 
 from codalab.common import State
 
@@ -100,10 +101,15 @@ class BundleClient(object):
         '''
         raise NotImplementedError
 
-    def tail(self, target):
+    def tail_file(self, target):
         '''
         Watch the tail of target file at stdout.
-        Watch stdout and stderr if only bundle is specified.
+        '''
+        raise NotImplementedError
+
+    def tail_bundle(self, bundle_spec):
+        '''
+        Watch the tail of stdout and stderr at stdout.
         '''
         raise NotImplementedError
 
@@ -136,7 +142,8 @@ class BundleClient(object):
             for fn in fns:
                 result = fn()
                 if not result == '':
-                    print result
+                    stdout.write(result)
+                    stdout.flush()
                     change = True
             # Sleep if nothing happened
             if change == False:

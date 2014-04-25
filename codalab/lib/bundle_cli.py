@@ -534,9 +534,10 @@ class BundleCLI(object):
         (bundle_spec, path) = target
 
         if path == '':
-          client.tail_bundle(bundle_spec)
+          state = client.tail_bundle(bundle_spec)
         else:
-          client.tail_file(target)
+          state = client.tail_file(target)
+        print 'Bundle state: ', state
 
     def do_wait_command(self, argv, parser):
         parser.add_argument('bundle_spec', help='identifier: [<uuid>|<name>]')

@@ -3,6 +3,7 @@ LocalBundleClient is BundleClient implementation that interacts directly with a
 BundleStore and a BundleModel. All filesystem operations are handled locally.
 '''
 from time import sleep
+import contextlib
 
 from codalab.bundles import (
   get_bundle_subclass,
@@ -17,6 +18,7 @@ from codalab.client.bundle_client import BundleClient
 from codalab.lib import (
   canonicalize,
   path_util,
+  file_util,
 )
 from codalab.objects.worksheet import Worksheet
 
@@ -128,33 +130,36 @@ class LocalBundleClient(BundleClient):
             self.add_worksheet_item(worksheet_uuid, bundle.uuid)
         return bundle.uuid
 
-    def tail_file(self, target):
+    def open_target(self, target):
         (bundle_spec, subpath) = target
         path = self.get_target_path(target)
+        path_util.check_isfile(path, 'open_target')
+        return open(path)
 
-        path_util.check_isfile(path, 'tail')
+    def tail_file(self, target):
+        (bundle_spec, subpath) = target
+        file_handle = self.open_target(target)
 
-        with open(path, 'rb') as file_handle:
+        with contextlib.closing(file_handle):
             # Print last 10 lines
-            lines = file_handle.read().splitlines()[-10:]
-            for line in lines:
-                print line
+            tail = file_util.tail(file_handle)
+            print tail
 
             def read_line():
-                return file_handle.readline().rstrip()
+                return file_handle.readline()
 
             return self.watch(bundle_spec, [read_line])
 
     def tail_bundle(self, bundle_spec):
-        out_path = self.get_target_path((bundle_spec, 'stdout'))
-        err_path = self.get_target_path((bundle_spec, 'stderr'))
+        out = self.open_target((bundle_spec, 'stdout'))
+        err = self.open_target((bundle_spec, 'stderr'))
 
-        with open(out_path, 'rb') as out, open(err_path, 'rb') as err:
+        with contextlib.closing(out), contextlib.closing(err):
 
             def out_line():
-                return out.readline().rstrip()
+                return out.readline()
             def err_line():
-                return err.readline().rstrip()
+                return err.readline()
 
             return self.watch(bundle_spec, [out_line, err_line])
 

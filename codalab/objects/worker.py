@@ -80,7 +80,7 @@ class Worker(object):
             # Check if running
             if uuid in self.processes:
                 proc = self.processes[bundle.uuid]
-                proc[process].kill()
+                proc['process'].kill()
                 self.finalize_failed(proc)
                 self.model.update_bundle(bundle, {'worker_command': None})
 
@@ -271,6 +271,7 @@ class Worker(object):
         '''
         Update a bundle to the new state and data hash at the end of a run.
         '''
+        print '-- END RUN: %s [%s]' % (bundle, state)
         update = {'state': state, 'data_hash': data_hash}
         if metadata:
             update['metadata'] = metadata

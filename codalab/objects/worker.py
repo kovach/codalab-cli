@@ -73,6 +73,7 @@ class Worker(object):
                 return success
         return True
 
+    # TODO(dskovach) mark bundle as killed rather than failed
     def check_killed_bundles(self):
         bundles = self.model.batch_get_bundles(worker_command=Command.KILL)
         for bundle in bundles:
@@ -81,20 +82,22 @@ class Worker(object):
             if uuid in self.processes:
                 proc = self.processes[bundle.uuid]
                 proc['process'].kill()
-                self.finalize_failed(proc)
+                self.finalize(proc, False)
                 self.model.update_bundle(bundle, {'worker_command': None})
 
+    # Poll processes to see if bundles have finished running
     def check_finished_bundles(self):
         for key, proc in self.processes.items():
             process = proc['process']
+            # Updates returncode field
             process.poll()
             returncode = process.returncode 
             # Process is finished
             if returncode != None:
                 if returncode != 0:
-                    self.finalize_failed(proc)
+                    self.finalize(proc, False)
                 else:
-                    self.finalize_finished(proc)
+                    self.finalize(proc, True)
 
 
     def update_created_bundles(self):
@@ -185,89 +188,40 @@ class Worker(object):
         # Get temp directory
         temp_dir = canonicalize.get_current_location(self.bundle_store, bundle.uuid)
 
-        # Run the bundle. Mark it READY if it is successful and FAILED otherwise.
+        # Run the bundle.
         with self.profile('Running bundle...'):
             print '-- START RUN: %s' % (bundle,)
-            try:
-                # new version
-                process = bundle.run(
-                  self.bundle_store, parent_dict, temp_dir)
-                self.processes[bundle.uuid] = {'bundle': bundle,
-                                               'process': process,
-                                               'temp_dir': temp_dir
-                                              }
-                # old version
-                #(data_hash, metadata) = bundle.run(
-                #  self.bundle_store, parent_dict, temp_dir)
-                #state = State.READY
-            except Exception:
-                # TODO(pliang): distinguish between internal CodaLab error and the program failing
-                # TODO(skishore): Add metadata updates: time / CPU of run.
-                (type, error, tb) = sys.exc_info()
-                with self.profile('Uploading failed bundle...'):
-                    (data_hash, metadata) = self.upload_failed_bundle(error, temp_dir)
-                failure_message = '%s: %s' % (error.__class__.__name__, error)
-                if data_hash:
-                    suffix = 'The results of the failed execution were uploaded.'
-                    failure_message = '%s\n%s' % (failure_message, suffix)
-                elif not isinstance(error, UsageError):
-                    failure_message = 'Traceback:\n%s\n%s' % (
-                      ''.join(traceback.format_tb(tb))[:-1],
-                      failure_message,
-                    )
-                metadata.update({'failure_message': failure_message})
-                state = State.FAILED
-            #self.finalize_run(bundle, state, data_hash, metadata)
-            #print '-- END RUN: %s [%s]' % (bundle, state)
-        # Clean up after the run.
-        #with self.profile('Cleaning up temp directory...'):
-        #    path_util.remove(temp_dir)
+            process = bundle.run(self.bundle_store, parent_dict, temp_dir)
+            proc = { 'bundle': bundle
+                   , 'process': process
+                   , 'temp_dir': temp_dir }
 
-    def finalize_failed(self, proc):
+            self.processes[bundle.uuid] = proc
+
+    def finalize(self, proc, successful=True):
         temp_dir = proc['temp_dir']
         bundle = proc['bundle']
 
-        # Upload failed
-        path_util.remove_symlinks(temp_dir)
-        try:
-            (data_hash, metadata) = self.bundle_store.upload(temp_dir)
-        except Exception:
-            pass
+        # Allow symlinks if successful
+        allow_symlinks = successful
 
-        # Finalize
-        self.finalize_run(bundle, State.FAILED, data_hash, metadata)
-        path_util.remove(temp_dir)
-        del self.processes[bundle.uuid]
-
-    def finalize_finished(self, proc):
-        temp_dir = proc['temp_dir']
-        bundle = proc['bundle']
-
-        # Upload
-        (data_hash, metadata) = self.bundle_store.upload(
-          temp_dir, allow_symlinks=True)
-
-        # Finalize
-        self.finalize_run(bundle, State.READY, data_hash, metadata)
-        path_util.remove(temp_dir)
-        del self.processes[bundle.uuid]
-
-    def upload_failed_bundle(self, error, temp_dir):
-        '''
-        Try to upload some data for a failed bundle run. Return a (data_hash, metadata)
-        pair if this fallback upload was successful, or (None, {}) if not.
-        '''
-        if isinstance(error, subprocess.CalledProcessError):
-            # The exception happened in the bundle's binary, not in our Python code.
-            # Right now, this is the only case in which we upload the failed bundle.
+        if not allow_symlinks:
             path_util.remove_symlinks(temp_dir)
-            try:
-                return self.bundle_store.upload(temp_dir)
-            except Exception:
-                pass
-        return (None, {})
+        try:
+            (data_hash, metadata) = self.bundle_store.upload(temp_dir, allow_symlinks)
+        except Exception:
+            (data_hash, metadata) = (None, {})
 
-    def finalize_run(self, bundle, state, data_hash, metadata=None):
+        if not successful and data_hash:
+            print 'The results of the failed execution were uploaded.'
+
+        # Update data, remove temp_dir and process
+        state = State.READY if successful else State.FAILED
+        self.finalize_model_data(bundle, state, data_hash, metadata)
+        path_util.remove(temp_dir)
+        del self.processes[bundle.uuid]
+
+    def finalize_model_data(self, bundle, state, data_hash, metadata=None):
         '''
         Update a bundle to the new state and data hash at the end of a run.
         '''

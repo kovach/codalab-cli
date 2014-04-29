@@ -26,6 +26,7 @@ from codalab.lib import (
 class RunBundle(NamedBundle):
     BUNDLE_TYPE = 'run'
     NAME_LENGTH = 8
+    process = 22
 
     @classmethod
     def construct(cls, targets, command, metadata):
@@ -55,6 +56,7 @@ class RunBundle(NamedBundle):
           'state': State.CREATED,
           'metadata': metadata,
           'dependencies': dependencies,
+          'worker_command': None,
         })
 
     def get_hard_dependencies(self):
@@ -72,7 +74,7 @@ class RunBundle(NamedBundle):
             print 'In temp directory: %s' % (temp_dir,)
             os.mkdir('output')  # Only stuff written to the output directory is copied back.
             with open('stdout', 'wb') as stdout, open('stderr', 'wb') as stderr:
-                subprocess.check_call(command, stdout=stdout, stderr=stderr, shell=True)
+                process = subprocess.Popen(command, stdout=stdout, stderr=stderr, shell=True)
             #os.unlink('program')
             #os.unlink('input')
-        return bundle_store.upload(temp_dir, allow_symlinks=True)
+        return process # bundle_store.upload(temp_dir, allow_symlinks=True)

@@ -52,8 +52,8 @@ class BundleCLI(object):
       'ls': 'List the contents of a bundle.',
       'cat': 'Print the contents of a file in a bundle.',
       'tail': 'Watch the contents of a file in a bundle.',
-      'block': 'Watch the contents of stdout and stderr while bundle is running.',
       'wait': 'Wait until a bundle is ready or failed, then print its state.',
+      'kill': 'Instruct the worker to terminate a running bundle.',
       'download': 'Download remote bundle from URL.',
       'cp': 'Copy bundles across servers.',
       # Worksheet-related commands.
@@ -591,6 +591,12 @@ class BundleCLI(object):
         else:
             self.exit(state)
 
+    def do_kill_command(self, argv, parser):
+        parser.add_argument('bundle_spec', help='identifier: [<uuid>|<name>]')
+        bundle_spec = parser.parse_args(argv).bundle_spec
+        client = self.manager.current_client()
+        client.kill(bundle_spec)
+
     #############################################################################
     # CLI methods for worksheet-related commands follow!
     #############################################################################
@@ -659,8 +665,11 @@ class BundleCLI(object):
         )
         args = parser.parse_args(argv)
         if args.worksheet_spec:
+            print '1'
             client, worksheet_info = self.parse_client_worksheet_info(args.worksheet_spec)
+            print '2'
             self.manager.set_current_worksheet_uuid(client, worksheet_info['uuid'])
+            print '3'
             print 'Switched to worksheet %s.' % (args.worksheet_spec,)
         elif args.exit:
             self.manager.set_current_worksheet_uuid(self.manager.current_client(), None)

@@ -18,6 +18,7 @@ import traceback
 from codalab.common import (
   precondition,
   State,
+  Command,
   UsageError,
 )
 from codalab.lib import (
@@ -32,6 +33,7 @@ class Worker(object):
         self.model = model
         self.profiling_depth = 0
         self.verbose = 0
+        self.processes = {}
 
     def pretty_print(self, message):
         time_str = datetime.datetime.utcnow().isoformat()[:19].replace('T', ' ')
@@ -70,6 +72,30 @@ class Worker(object):
                     self.pretty_print('WARNING: update failed!')
                 return success
         return True
+
+    def check_killed_bundles(self):
+        bundles = self.model.batch_get_bundles(worker_command=Command.KILL)
+        for bundle in bundles:
+            uuid = bundle.uuid
+            # Check if running
+            if uuid in self.processes:
+                proc = self.processes[bundle.uuid]
+                proc[process].kill()
+                self.finalize_failed(proc)
+                self.model.update_bundle(bundle, {'worker_command': None})
+
+    def check_finished_bundles(self):
+        for key, proc in self.processes.items():
+            process = proc['process']
+            process.poll()
+            returncode = process.returncode 
+            # Process is finished
+            if returncode != None:
+                if returncode != 0:
+                    self.finalize_failed(proc)
+                else:
+                    self.finalize_finished(proc)
+
 
     def update_created_bundles(self):
         '''
@@ -116,7 +142,7 @@ class Worker(object):
                 self.model.update_bundle(bundle, update)
         self.update_bundle_states(bundles_to_stage, State.STAGED)
         num_processed = len(bundles_to_fail) + len(bundles_to_stage)
-        num_blocking = len(bundles) - len(bundles_to_fail) - len(bundles_to_stage)
+        num_blocking  = len(bundles) - num_processed
         if num_processed > 0:
             self.pretty_print('%s bundles processed, %s bundles still blocking on parents.' % (num_processed, num_blocking,))
             return True
@@ -163,9 +189,17 @@ class Worker(object):
         with self.profile('Running bundle...'):
             print '-- START RUN: %s' % (bundle,)
             try:
-                (data_hash, metadata) = bundle.run(
+                # new version
+                process = bundle.run(
                   self.bundle_store, parent_dict, temp_dir)
-                state = State.READY
+                self.processes[bundle.uuid] = {'bundle': bundle,
+                                               'process': process,
+                                               'temp_dir': temp_dir
+                                              }
+                # old version
+                #(data_hash, metadata) = bundle.run(
+                #  self.bundle_store, parent_dict, temp_dir)
+                #state = State.READY
             except Exception:
                 # TODO(pliang): distinguish between internal CodaLab error and the program failing
                 # TODO(skishore): Add metadata updates: time / CPU of run.
@@ -183,11 +217,40 @@ class Worker(object):
                     )
                 metadata.update({'failure_message': failure_message})
                 state = State.FAILED
-            self.finalize_run(bundle, state, data_hash, metadata)
-            print '-- END RUN: %s [%s]' % (bundle, state)
+            #self.finalize_run(bundle, state, data_hash, metadata)
+            #print '-- END RUN: %s [%s]' % (bundle, state)
         # Clean up after the run.
-        with self.profile('Cleaning up temp directory...'):
-            path_util.remove(temp_dir)
+        #with self.profile('Cleaning up temp directory...'):
+        #    path_util.remove(temp_dir)
+
+    def finalize_failed(self, proc):
+        temp_dir = proc['temp_dir']
+        bundle = proc['bundle']
+
+        # Upload failed
+        path_util.remove_symlinks(temp_dir)
+        try:
+            (data_hash, metadata) = self.bundle_store.upload(temp_dir)
+        except Exception:
+            pass
+
+        # Finalize
+        self.finalize_run(bundle, State.FAILED, data_hash, metadata)
+        path_util.remove(temp_dir)
+        del self.processes[bundle.uuid]
+
+    def finalize_finished(self, proc):
+        temp_dir = proc['temp_dir']
+        bundle = proc['bundle']
+
+        # Upload
+        (data_hash, metadata) = self.bundle_store.upload(
+          temp_dir, allow_symlinks=True)
+
+        # Finalize
+        self.finalize_run(bundle, State.READY, data_hash, metadata)
+        path_util.remove(temp_dir)
+        del self.processes[bundle.uuid]
 
     def upload_failed_bundle(self, error, temp_dir):
         '''
@@ -222,11 +285,18 @@ class Worker(object):
         self.pretty_print('Running worker loop (num_iterations = %s, sleep_time = %s)' % (num_iterations, sleep_time))
         iteration = 0
         while not num_iterations or iteration < num_iterations:
-            # Sleep only if nothing happened.
+            # Check to see if any bundles should be killed
+            bool_killed = self.check_killed_bundles();
+            # Try to stage bundles
             self.update_created_bundles()
-            changed = self.update_staged_bundles()
-            if not changed:
+            # Try to run bundles with Ready parents
+            bool_run = self.update_staged_bundles()
+            # Check to see if any bundles are done running
+            bool_done = self.check_finished_bundles()
+
+            # Sleep only if nothing happened.
+            if not (bool_killed or bool_run or bool_done):
                 time.sleep(sleep_time)
-                continue
-            # Advance counter only if something interesting happened
-            iteration += 1
+            else:
+                # Advance counter only if something interesting happened
+                iteration += 1

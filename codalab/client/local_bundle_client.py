@@ -12,6 +12,7 @@ from codalab.bundles import (
 from codalab.common import (
   precondition,
   State,
+  Command,
   UsageError,
 )
 from codalab.client.bundle_client import BundleClient
@@ -130,6 +131,11 @@ class LocalBundleClient(BundleClient):
         if worksheet_uuid:
             self.add_worksheet_item(worksheet_uuid, bundle.uuid)
         return bundle.uuid
+
+    def kill(self, bundle_spec):
+        uuid = self.get_spec_uuid(bundle_spec)
+        bundle = self.model.get_bundle(uuid)
+        self.model.update_bundle(bundle, {'worker_command': Command.KILL});
 
     def open_target(self, target):
         (bundle_spec, subpath) = target

@@ -31,6 +31,7 @@ bundle = Table(
   Column('data_hash', String(63), nullable=True),
   Column('state', String(63), nullable=False),
   #Column('owner_id', Integer, nullable=True),
+  Column('worker_command', String(63), nullable=True),
   UniqueConstraint('uuid', name='uix_1'),
   Index('bundle_data_hash_index', 'data_hash'),
   #Index('bundle_owner_index', 'owner_id'),

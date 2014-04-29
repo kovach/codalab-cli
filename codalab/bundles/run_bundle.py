@@ -75,6 +75,4 @@ class RunBundle(NamedBundle):
             os.mkdir('output')  # Only stuff written to the output directory is copied back.
             with open('stdout', 'wb') as stdout, open('stderr', 'wb') as stderr:
                 process = subprocess.Popen(command, stdout=stdout, stderr=stderr, shell=True)
-            #os.unlink('program')
-            #os.unlink('input')
-        return process # bundle_store.upload(temp_dir, allow_symlinks=True)
+        return process
